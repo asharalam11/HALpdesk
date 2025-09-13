@@ -21,6 +21,60 @@ cd halpdesk
 pip install -e .
 ```
 
+### Debian / Ubuntu (APT)
+
+Option A: Local install from built .deb (for testing):
+
+1. Download the latest `.deb` from GitHub Actions artifacts or build locally:
+   ```bash
+   bash scripts/build_deb.sh 0.1.0
+   sudo dpkg -i dist/halpdesk_0.1.0_amd64.deb
+   ```
+2. Enable the daemon as a user service (run as the target user):
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now halpdesk.service
+   ```
+
+Option B: Build from a GitHub release tarball (stable):
+
+```bash
+# Build .deb from a tag (uses public repo tarball)
+gem install --no-document fpm
+bash scripts/build_deb_from_release.sh v0.1.0 asharalam11/HALpdesk
+sudo dpkg -i dist/halpdesk_0.1.0_amd64.deb
+systemctl --user daemon-reload && systemctl --user enable --now halpdesk.service
+```
+
+Option C: APT repository (recommended for users):
+
+- Host an APT repo (Cloudsmith, PackageCloud, or Aptly).
+- Publish the `.deb` built by CI on tags (workflow uploads to the GitHub Release; mirror it to your repo).
+- Users add your signed repo and run `apt install halpdesk`.
+
+### macOS (Homebrew)
+
+Option A: Local formula tap (for testing):
+
+1. Edit `packaging/homebrew/halpdesk.rb` to point to a released tarball URL and SHA256.
+2. Install:
+   ```bash
+   brew install --formula packaging/homebrew/halpdesk.rb
+   ```
+3. Run the daemon on login:
+   ```bash
+   brew services start halpdesk
+   ```
+
+Option B: Dedicated tap (recommended):
+
+- Create `yourorg/homebrew-halpdesk` and publish `halpdesk.rb` there.
+- Users install with:
+  ```bash
+  brew tap yourorg/halpdesk
+  brew install halpdesk
+  ```
+
 ### Requirements
 
 - Python 3.8+
