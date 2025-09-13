@@ -137,31 +137,18 @@ class OllamaProvider(AIProvider):
     
     def get_command_suggestion(self, query: str, context: Dict[str, Any]) -> str:
         cwd = context.get('cwd', '.')
-        prompt = f"""You are a helpful terminal assistant. Convert the user's request into a bash command.
-
-User request: {query}
-Current directory: {cwd}
-
-Respond with ONLY the bash command, no explanations or extra text.
-
-Examples:
-User: "list files" → ls -la
-User: "show disk usage" → df -h
-User: "find python files" → find . -name "*.py"
-
-Command:"""
-        
+        os_info = context.get('os', 'unknown OS')
+        prompt = (
+            'You are HAL Exec Planner. Output one JSON object and nothing else.\n'
+            'If enough info: {"action":"command","command":"<one-line POSIX-sh command>"}.\n'
+            'If missing info: {"action":"ask","question":"<one short clarifying question>"}.\n'
+            'Rules: one line only (no newlines, code fences, or backticks). Use $(...) not backticks. '
+            'Quote paths. Use "$PWD" or "$HOME", not "~". OS-specific: use only tools/flags supported on this OS. '
+            'On macOS/BSD do NOT use GNU-only options such as find -printf, sed -r, du --block-size, grep -P.\n'
+            f'Task: {query}\nCWD: {cwd}\nOS: {os_info}\n'
+        )
         response = self._make_request(prompt)
-        # Extract and clean the command
-        lines = response.strip().split('\n')
-        command = lines[0].strip() if lines else "echo 'No command generated'"
-        
-        # Clean up common formatting issues
-        command = command.strip('`"\'')  # Remove backticks and quotes
-        command = command.replace('```bash', '').replace('```', '')  # Remove code blocks
-        command = command.strip()
-        
-        return command if command else "echo 'No command generated'"
+        return response.strip()
     
     def chat(self, message: str, context: Dict[str, Any]) -> str:
         prompt = f"""You are a helpful assistant. Answer the user's question clearly and concisely.
@@ -234,21 +221,30 @@ class GeminiProvider(AIProvider):
     
     def get_command_suggestion(self, query: str, context: Dict[str, Any]) -> str:
         cwd = context.get('cwd', '.')
+        os_info = context.get('os', 'unknown OS')
+        prompt = f"""
+You are a terminal assistant that outputs structured JSON decisions.
+You are running on {os_info} in directory {cwd}.
+
+If enough information is provided, reply with EXACTLY:
+{{"action":"command","command":"<bash command>"}}
+
+If you need more details to produce a safe command, reply with EXACTLY:
+{{"action":"ask","question":"<one short clarifying question>"}}
+
+No explanations or text outside the JSON object.
+
+User request: {query}
+"""
         messages = [
-            {"role": "system", "content": "You are a terminal assistant. Convert user requests into bash commands. Respond with ONLY the command, no explanations."},
-            {"role": "user", "content": f"Request: {query}\nCurrent directory: {cwd}\nCommand:"}
+            {
+                "role": "system",
+                "content": (f"{prompt}"),
+            },
+            {"role": "user", "content": f"Request: {query}\nCurrent directory: {cwd}\nOperating system: {os_info}"},
         ]
         response = self._make_request(messages)
-        # Extract and clean the command
-        lines = response.strip().split('\n')
-        command = lines[0].strip() if lines else "echo 'No command generated'"
-        
-        # Clean up common formatting issues
-        command = command.strip('`"\'')  # Remove backticks and quotes
-        command = command.replace('```bash', '').replace('```', '')  # Remove code blocks
-        command = command.strip()
-        
-        return command if command else "echo 'No command generated'"
+        return response.strip()
     
     def chat(self, message: str, context: Dict[str, Any]) -> str:
         messages = [
@@ -525,10 +521,16 @@ class ClaudeProvider(AIProvider):
 
     def get_command_suggestion(self, query: str, context: Dict[str, Any]) -> str:
         cwd = context.get("cwd", ".")
-        system = "You are a terminal assistant. Convert user requests into bash commands. Respond with ONLY the command, no explanations."
-        user = f"Request: {query}\nCurrent directory: {cwd}\nCommand:"
+        os_info = context.get('os', 'unknown OS')
+        system = (
+            'You are a terminal assistant that outputs structured JSON decisions.\n'
+            'If enough information: {"action":"command","command":"<bash>"}.\n'
+            'If ambiguous: {"action":"ask","question":"<short question>"}.\n'
+            'No extra text outside JSON.'
+        )
+        user = f"Request: {query}\nCurrent directory: {cwd}\nOperating system: {os_info}"
         response = self._make_request(system, user)
-        return response.strip().split("\n")[0].strip() if response else "echo 'No command generated'"
+        return response.strip()
 
     def chat(self, message: str, context: Dict[str, Any]) -> str:
         system = "You are a helpful assistant. Answer questions clearly and concisely."

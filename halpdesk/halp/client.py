@@ -310,11 +310,33 @@ Type '/help' for commands, 'exit' to quit.
     def _handle_ai_suggestion(self, query: str):
         """Handle AI command suggestion (original behavior)"""
         suggestion = self.get_command_suggestion(query)
+        # Handle clarifying questions loop
+        max_rounds = 3
+        rounds = 0
+        while suggestion and suggestion.get("status") == "need_more_info" and rounds < max_rounds:
+            q = (suggestion.get("question") or "Provide more details:").strip()
+            # If the server requests a reformat, auto-retry without bothering the user
+            if q.lower().startswith("reformat:"):
+                console.print(f"[yellow]{q}[/yellow]")
+                query = f"{query}\n{q}"
+                suggestion = self.get_command_suggestion(query)
+                rounds += 1
+                continue
+            console.print(f"[yellow]{q}[/yellow]")
+            ans = prompt("Your answer: ").strip()
+            if not ans:
+                break
+            query = f"{query}\nAdditional details: {ans}"
+            suggestion = self.get_command_suggestion(query)
+            rounds += 1
         
         if not suggestion:
             console.print("[red]Failed to get command suggestion[/red]")
             return
-        
+        if suggestion.get("status") != "success":
+            console.print("[red]Assistant could not produce a command[/red]")
+            return
+
         command = suggestion["command"]
         safety_level = suggestion["safety_level"]
         safety_reason = suggestion["safety_reason"]

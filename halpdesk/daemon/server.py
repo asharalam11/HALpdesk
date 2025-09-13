@@ -3,10 +3,14 @@ import os
 import time
 import logging
 import uvicorn
+import platform
 from fastapi import FastAPI, HTTPException, Request
 import requests
 from pydantic import BaseModel
 from typing import Dict, List, Optional
+import json as _json
+import re
+import sys as _sys
 
 from .session import SessionManager, SessionMode
 from .ai_provider import AIProviderFactory, OllamaProvider, GeminiProvider, ClaudeProvider, stop_autostarted_ollama
@@ -25,6 +29,9 @@ session_manager = SessionManager()
 ai_provider = AIProviderFactory.create_provider()
 safety_checker = CommandSafetyChecker(ai_provider)
 logger = logging.getLogger("halpdesk.daemon")
+
+# Gather basic system information for provider context
+OS_INFO = f"{platform.system()} {platform.release()} ({platform.machine()})"
 
 # Basic request/response logging middleware
 @app.middleware("http")
@@ -214,38 +221,143 @@ async def leave_session(request: LeaveRequest):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"status": "closed" if result["closed"] else "left", "closed": result["closed"]}
 
-@app.post("/command/suggest", response_model=CommandResponse)
+@app.post("/command/suggest")
 async def suggest_command(request: QueryRequest):
     session = session_manager.get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # Get command suggestion from AI
-    context = {"cwd": session.cwd, "history": session.history}
+    # Get command suggestion from AI, include OS info
+    context = {"cwd": session.cwd, "history": session.history, "os": OS_INFO}
     prov_name = ai_provider.__class__.__name__
     model = getattr(ai_provider, "model", None)
     logger.info("[api/suggest] → provider=%s model=%s query_len=%s", prov_name, model, len(request.query))
     t0 = time.perf_counter()
-    command = ai_provider.get_command_suggestion(request.query, context)
+    raw = ai_provider.get_command_suggestion(request.query, context)
     dt = (time.perf_counter() - t0) * 1000
     logger.info("[api/suggest] ← %sms", int(dt))
     
-    # Check safety using AI
+    # Attempt to parse an action decision from provider output
+    def _parse_decision(text: str) -> Dict[str, Optional[str]]:
+        text = (text or "").strip()
+        # Strip common code fences like ```json ... ``` or ``` ... ```
+        if text.startswith("```"):
+            # remove leading ```lang (optional)
+            text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text)
+            # remove trailing ```
+            text = re.sub(r"\s*```$", "", text)
+        try:
+            obj = _json.loads(text)
+            if isinstance(obj, dict) and "action" in obj:
+                return {
+                    "action": str(obj.get("action", "")).lower(),
+                    "command": obj.get("command"),
+                    "question": obj.get("question"),
+                    "reason": obj.get("reason"),
+                }
+        except Exception:
+            pass
+        # Find first JSON object anywhere in the text (even if code fences remain)
+        m = re.search(r"\{[\s\S]*\}", text)
+        if m:
+            try:
+                obj = _json.loads(m.group(0))
+                if isinstance(obj, dict) and "action" in obj:
+                    return {
+                        "action": str(obj.get("action", "")).lower(),
+                        "command": obj.get("command"),
+                        "question": obj.get("question"),
+                        "reason": obj.get("reason"),
+                    }
+            except Exception:
+                pass
+        if text.lower().startswith("ask:"):
+            return {"action": "ask", "question": text.partition(":")[2].strip(), "command": None, "reason": None}
+        return {"action": "command", "command": text, "question": None, "reason": None}
+
+    decision = _parse_decision(raw)
+    action = decision.get("action")
+    if action == "ask":
+        q = decision.get("question") or "Could you provide more details?"
+        session.add_to_history({"type": "clarify_request", "question": q})
+        return {"status": "need_more_info", "question": q}
+    if action == "refuse":
+        reason = decision.get("reason") or "Cannot proceed with the request."
+        session.add_to_history({"type": "refuse", "reason": reason})
+        raise HTTPException(status_code=400, detail=reason)
+
+    command = decision.get("command") or "echo 'No command generated'"
+
+    # Validate formatting and OS compatibility before proceeding
+    def _balanced_quotes_and_parens(s: str) -> bool:
+        in_s = False
+        in_d = False
+        esc = False
+        paren = 0
+        for ch in s:
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if not in_d and ch == "'":
+                in_s = not in_s
+                continue
+            if not in_s and ch == '"':
+                in_d = not in_d
+                continue
+            if not in_s and not in_d:
+                if ch == "(":
+                    paren += 1
+                elif ch == ")":
+                    paren -= 1
+                    if paren < 0:
+                        return False
+        return (not in_s) and (not in_d) and paren == 0
+
+    # One-line and fence checks
+    if "\n" in command or "\r" in command or "```" in command:
+        msg = (
+            "Reformat: Return one JSON object only with action=command and a single-line command. "
+            "Do not include code fences, backticks, or newlines."
+        )
+        session.add_to_history({"type": "clarify_request", "question": msg})
+        return {"status": "need_more_info", "question": msg}
+
+    # Balanced quotes/parens
+    if not _balanced_quotes_and_parens(command):
+        msg = "Reformat: The command has unbalanced quotes or parentheses. Return a corrected one-line command."
+        session.add_to_history({"type": "clarify_request", "question": msg})
+        return {"status": "need_more_info", "question": msg}
+
+    # macOS GNU-only guardrails
+    if _sys.platform == "darwin":
+        forbidden_patterns = [r"find\s+[^\n]*-printf", r"\bsed\s+[^\n]*-r\b", r"\bdu\s+[^\n]*--", r"\bgrep\s+[^\n]*-P\b"]
+        for pat in forbidden_patterns:
+            if re.search(pat, command):
+                msg = (
+                    "Reformat: This macOS system does not support GNU-only options (e.g., find -printf, sed -r, du --, grep -P). "
+                    "Return a POSIX/macOS-compatible one-line command."
+                )
+                session.add_to_history({"type": "clarify_request", "question": msg})
+                return {"status": "need_more_info", "question": msg}
+    # Check safety
     safety_level, safety_reason = safety_checker.check_command(command)
-    
-    # Add to session history
+    # Record final suggestion
     session.add_to_history({
         "type": "command_suggestion",
         "query": request.query,
+        "assistant_decision": decision,
         "command": command,
-        "safety_level": safety_level
+        "safety_level": safety_level,
     })
-    
-    return CommandResponse(
-        command=command,
-        safety_level=safety_level,
-        safety_reason=safety_reason
-    )
+    return {
+        "status": "success",
+        "command": command,
+        "safety_level": safety_level,
+        "safety_reason": safety_reason,
+    }
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -254,7 +366,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=404, detail="Session not found")
     
     # Get chat response from AI
-    context = {"cwd": session.cwd, "history": session.history}
+    context = {"cwd": session.cwd, "history": session.history, "os": OS_INFO}
     prov_name = ai_provider.__class__.__name__
     model = getattr(ai_provider, "model", None)
     logger.info("[api/chat] → provider=%s model=%s message_len=%s", prov_name, model, len(request.message))
