@@ -11,7 +11,14 @@ from typing import Dict, List, Optional
 from .session import SessionManager, SessionMode
 from .ai_provider import AIProviderFactory, OllamaProvider, OpenAIProvider, ClaudeProvider, stop_autostarted_ollama
 from .safety import CommandSafetyChecker
-from ..config import server_bind, provider_settings, config_path
+from ..config import (
+    server_bind,
+    provider_settings,
+    config_path,
+    sanitized_file_config,
+    sanitized_provider_settings,
+    client_daemon_url,
+)
 
 app = FastAPI(title="HALpdesk Daemon", version="0.1.0")
 session_manager = SessionManager()
@@ -71,6 +78,25 @@ async def _on_startup():
             ps.get("claude", {}).get("model"),
             ps.get("ollama", {}).get("model"),
         )
+        # Log sanitized file config and effective config
+        try:
+            import json as _json
+            cfg_dump = _json.dumps(sanitized_file_config(), separators=(",",":"))
+            logger.info("[startup] file_config=%s", cfg_dump)
+            eff = {
+                "server": {
+                    "bind": {
+                        "host": server_bind()[0],
+                        "port": server_bind()[1],
+                    },
+                    "client_url": client_daemon_url(),
+                },
+                "providers": sanitized_provider_settings(),
+            }
+            eff_dump = _json.dumps(eff, separators=(",",":"))
+            logger.info("[startup] effective_config=%s", eff_dump)
+        except Exception:
+            pass
     except Exception:
         pass
 

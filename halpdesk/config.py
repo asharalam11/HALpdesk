@@ -26,6 +26,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Tuple
+import copy
+import json
 
 
 # Try Python 3.11+ stdlib first; fallback to tomli on older Python.
@@ -63,6 +65,27 @@ def config_path() -> Path:
 def load() -> Dict[str, Any]:
     path = config_path()
     return _read_toml(path)
+
+
+def _redact(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        red: Dict[str, Any] = {}
+        for k, v in obj.items():
+            lk = str(k).lower()
+            if lk in {"api_key", "token", "password", "secret"}:
+                red[k] = "***"
+            else:
+                red[k] = _redact(v)
+        return red
+    if isinstance(obj, list):
+        return [_redact(x) for x in obj]
+    return obj
+
+
+def sanitized_file_config() -> Dict[str, Any]:
+    """Raw file config with secrets redacted (no env applied)."""
+    cfg = load()
+    return _redact(copy.deepcopy(cfg))
 
 
 def _parse_endpoint(ep: str) -> Tuple[str, int]:
@@ -178,3 +201,12 @@ def provider_settings() -> Dict[str, Any]:
         result["claude"]["api_key"] = os.environ["ANTHROPIC_API_KEY"]
 
     return result
+
+
+def sanitized_provider_settings() -> Dict[str, Any]:
+    """Return provider_settings() with secrets redacted."""
+    data = copy.deepcopy(provider_settings())
+    for name in ("openai", "claude"):
+        if name in data and isinstance(data[name], dict) and data[name].get("api_key"):
+            data[name]["api_key"] = "***"
+    return data
