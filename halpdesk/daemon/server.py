@@ -131,6 +131,18 @@ class ModeRequest(BaseModel):
     session_id: str
     mode: str
 
+class AttachRequest(BaseModel):
+    session_id: str
+    client_pid: int
+
+class DetachRequest(BaseModel):
+    session_id: str
+    client_pid: int
+
+class LeaveRequest(BaseModel):
+    session_id: str
+    client_pid: int
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
@@ -176,6 +188,30 @@ async def switch_mode(request: ModeRequest):
         raise HTTPException(status_code=404, detail="Session not found")
     logger.info("[api/session/mode] switched session_id=%s", request.session_id)
     return SessionResponse(session_id=request.session_id)
+
+@app.post("/session/attach")
+async def attach_session(request: AttachRequest):
+    logger.info("[api/session/attach] session_id=%s client_pid=%s", request.session_id, request.client_pid)
+    count = session_manager.attach(request.session_id, request.client_pid)
+    if count < 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "attached", "attached": count}
+
+@app.post("/session/detach")
+async def detach_session(request: DetachRequest):
+    logger.info("[api/session/detach] session_id=%s client_pid=%s", request.session_id, request.client_pid)
+    result = session_manager.detach(request.session_id, request.client_pid)
+    if not result["found"]:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "detached", "closed": False}
+
+@app.post("/session/leave")
+async def leave_session(request: LeaveRequest):
+    logger.info("[api/session/leave] session_id=%s client_pid=%s", request.session_id, request.client_pid)
+    result = session_manager.leave(request.session_id, request.client_pid)
+    if not result["found"]:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "closed" if result["closed"] else "left", "closed": result["closed"]}
 
 @app.post("/command/suggest", response_model=CommandResponse)
 async def suggest_command(request: QueryRequest):
@@ -281,6 +317,21 @@ async def diagnostics():
         "connectivity": {"reachable": False, "http_status": None, "status": "unknown"},
         "details": {},
     }
+
+    # Include sessions summary with attached counts
+    try:
+        active = [
+            {
+                "session_id": s.session_id,
+                "mode": s.mode.value if hasattr(s, "mode") else None,
+                "cwd": getattr(s, "cwd", None),
+                "attached_count": len(getattr(s, "attached_clients", []) or []),
+            }
+            for s in session_manager.sessions.values()
+        ]
+        info["sessions"] = {"count": len(active), "active": active}
+    except Exception:
+        info["sessions"] = {"count": 0, "active": []}
 
     try:
         if isinstance(ai_provider, OllamaProvider) and base:
