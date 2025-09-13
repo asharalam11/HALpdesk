@@ -38,7 +38,9 @@ except ModuleNotFoundError:  # pragma: no cover
         tomllib = None  # type: ignore
 
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "halpdesk" / "config.toml"
+# Use examples/config.toml as the default config
+PROJECT_ROOT = Path(__file__).parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "examples" / "config.toml"
 
 
 def _read_toml(path: Path) -> Dict[str, Any]:
@@ -166,32 +168,13 @@ def provider_settings() -> Dict[str, Any]:
                         continue
                     result[name][key] = sub[key]
 
-    # Environment overrides
-    result["default"] = os.environ.get("HALPDESK_PROVIDER", default_from_cfg)
+    # Use config file as primary source - no environment overrides
+    result["default"] = default_from_cfg
 
-    # OpenAI
-    if os.environ.get("HALPDESK_OPENAI_BASE_URL"):
-        result["openai"]["base_url"] = os.environ["HALPDESK_OPENAI_BASE_URL"]
-    if os.environ.get("HALPDESK_OPENAI_MODEL"):
-        result["openai"]["model"] = os.environ["HALPDESK_OPENAI_MODEL"]
+    # Only allow API keys from environment for security
     if os.environ.get("OPENAI_API_KEY"):
         result["openai"]["api_key"] = os.environ["OPENAI_API_KEY"]
-
-    # Claude / Anthropic
-    if os.environ.get("HALPDESK_CLAUDE_BASE_URL"):
-        result["claude"]["base_url"] = os.environ["HALPDESK_CLAUDE_BASE_URL"]
-    if os.environ.get("HALPDESK_CLAUDE_MODEL"):
-        result["claude"]["model"] = os.environ["HALPDESK_CLAUDE_MODEL"]
     if os.environ.get("ANTHROPIC_API_KEY"):
         result["claude"]["api_key"] = os.environ["ANTHROPIC_API_KEY"]
-
-    # Ollama
-    ollama_base = os.environ.get("HALPDESK_OLLAMA_BASE_URL") or os.environ.get("OLLAMA_HOST")
-    if ollama_base:
-        result["ollama"]["base_url"] = ollama_base
-    if os.environ.get("HALPDESK_OLLAMA_MODEL"):
-        result["ollama"]["model"] = os.environ["HALPDESK_OLLAMA_MODEL"]
-    if os.environ.get("HALPDESK_OLLAMA_BIN"):
-        result["ollama"]["binary"] = os.environ["HALPDESK_OLLAMA_BIN"]
 
     return result
