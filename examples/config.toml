@@ -12,17 +12,17 @@ port = 8080
 daemon_url = "http://127.0.0.1:8080"
 
 [providers]
-# Set the default provider to use: "openai", "claude", or "ollama".
+# Set the default provider to use: "gemini", "claude", or "ollama".
 # If omitted, the daemon will auto-detect based on available API keys,
-# preferring OpenAI, then Claude, then Ollama.
-default = "ollama"
+# preferring Gemini, then Claude, then Ollama.
+default = "gemini"
 
-  [providers.openai]
-  # Configure OpenAI-compatible endpoints (works with Azure/OpenRouter style too)
-  base_url = "https://api.openai.com/v1"
-  model = "gpt-3.5-turbo"
-  # api_key is optional here; normally supplied via OPENAI_API_KEY env var
-  # api_key = "sk-..."
+  [providers.gemini]
+  # Configure Google Gemini API
+  base_url = "https://generativelanguage.googleapis.com"
+  model = "gemini-1.5-flash"
+  # api_key is optional here; normally supplied via GEMINI_API_KEY env var
+  # api_key = "your-key-here"
 
   [providers.claude]
   # Anthropic Claude endpoint
