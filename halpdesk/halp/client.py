@@ -25,6 +25,59 @@ class HALpClient:
         self.commands = SessionCommands(self)
         # Command history for arrow key support
         self.history = InMemoryHistory()
+        # Track if user detached intentionally to avoid closing on exit
+        self.exiting_detached = False
+
+    def _fetch_sessions(self):
+        """Fetch sessions from daemon; return list of dicts."""
+        try:
+            r = self.get("/session/list")
+            if r.status_code == 200:
+                return r.json().get("sessions", [])
+        except Exception:
+            pass
+        return []
+
+    def select_or_create_session(self) -> bool:
+        """Interactive selection instead of auto-creating a session.
+
+        - If sessions exist: let the user choose one, create new, or quit.
+        - If none exist: ask to create a new session.
+
+        Returns True if a session is attached; False if the user aborts.
+        """
+        sessions = self._fetch_sessions()
+        if sessions:
+            console.print("[bold]Active sessions:[/bold]")
+            for idx, s in enumerate(sessions, start=1):
+                sid = s.get("session_id") or s.get("id") or "?"
+                mode = s.get("mode", "exec")
+                cwd = s.get("cwd", "")
+                console.print(f"  {idx}. {sid}  [{mode}]  {cwd}")
+            while True:
+                ans = prompt(
+                    "Join session number, 'n' for new, or 'q' to quit: ",
+                    default="",
+                    history=self.history,
+                ).strip().lower()
+                if ans in {"q", "quit", "exit"}:
+                    return False
+                if ans in {"n", "new"}:
+                    return self.create_session()
+                if ans.isdigit():
+                    i = int(ans)
+                    if 1 <= i <= len(sessions):
+                        target = sessions[i - 1]
+                        sid = target.get("session_id") or target.get("id")
+                        if sid and self.join_session(sid):
+                            return True
+                        console.print("[red]Failed to join session[/red]")
+                        return False
+                console.print("[yellow]Please enter a number, 'n', or 'q'.[/yellow]")
+        # No sessions exist yet
+        if Confirm.ask("No sessions found. Create a new one now?", default=True):
+            return self.create_session()
+        return False
     
     def get(self, endpoint: str):
         """Make GET request to daemon"""
@@ -78,6 +131,34 @@ class HALpClient:
             return False
         except:
             return False
+
+    def attach_session(self) -> bool:
+        """Notify daemon that this terminal attaches to the current session."""
+        if not self.current_session_id:
+            return False
+        try:
+            r = self.post("/session/attach", {"session_id": self.current_session_id, "client_pid": os.getpid()})
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def detach_session(self) -> None:
+        """Notify daemon that this terminal detaches; last one closes the session."""
+        if not self.current_session_id:
+            return
+        try:
+            self.post("/session/detach", {"session_id": self.current_session_id, "client_pid": os.getpid()})
+        except Exception:
+            pass
+
+    def leave_session(self) -> None:
+        """Notify daemon that this terminal is leaving (closing if last)."""
+        if not self.current_session_id:
+            return
+        try:
+            self.post("/session/leave", {"session_id": self.current_session_id, "client_pid": os.getpid()})
+        except Exception:
+            pass
     
     def list_sessions(self):
         """List all sessions and return to shell"""
@@ -131,35 +212,43 @@ Type '/help' for commands, 'exit' to quit.
     
     def run_interactive(self):
         """Run interactive session"""
+        # Attach to the session; ensure we detach on exit
+        attached = self.attach_session()
         self.show_welcome()
         
-        while True:
-            try:
-                # Show appropriate prompt based on mode
-                if self.current_mode == "chat":
-                    prompt_text = HTML('<ansiblue>HAL (chat)></ansiblue> ')
-                else:
-                    prompt_text = HTML('<ansigreen>HAL></ansigreen> ')
-                
-                user_input = prompt(prompt_text, history=self.history).strip()
-                
-                if not user_input:
-                    continue
-                
-                # Handle session commands first
-                if self.commands.handle_command(user_input):
-                    continue
-                
-                # Handle based on current mode
-                if self.current_mode == "chat":
-                    self._handle_chat_mode(user_input)
-                else:
-                    self._handle_exec_mode(user_input)
+        try:
+            while True:
+                try:
+                    # Show appropriate prompt based on mode
+                    if self.current_mode == "chat":
+                        prompt_text = HTML('<ansiblue>HAL (chat)></ansiblue> ')
+                    else:
+                        prompt_text = HTML('<ansigreen>HAL></ansigreen> ')
                     
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Use 'exit' to quit HAL[/yellow]")
-            except EOFError:
-                break
+                    user_input = prompt(prompt_text, history=self.history).strip()
+                    
+                    if not user_input:
+                        continue
+                    
+                    # Handle session commands first
+                    if self.commands.handle_command(user_input):
+                        continue
+                    
+                    # Handle based on current mode
+                    if self.current_mode == "chat":
+                        self._handle_chat_mode(user_input)
+                    else:
+                        self._handle_exec_mode(user_input)
+                        
+                except KeyboardInterrupt:
+                    console.print("\n[yellow]Use 'exit' to quit HAL[/yellow]")
+                except EOFError:
+                    break
+        finally:
+            # If user triggered a detach, do not close the session here
+            if not self.exiting_detached:
+                # Leaving the program: close session if this was the last terminal
+                self.leave_session()
     
     def _handle_chat_mode(self, message: str):
         """Handle chat mode input"""
@@ -290,11 +379,15 @@ def main():
             console.print(f"[red]Failed to join session {args.session_id}[/red]")
             sys.exit(1)
     
-    elif args.command == "new" or args.command is None:
-        # Create new session (default behavior)
+    elif args.command == "new":
         if not client.create_session():
             console.print("[red]Failed to create session[/red]")
             sys.exit(1)
+    elif args.command is None:
+        # Interactive selection; do not auto-create by default
+        if not client.select_or_create_session():
+            console.print("[yellow]No session attached. Exiting.[/yellow]")
+            sys.exit(0)
     
     # Run interactive session
     try:

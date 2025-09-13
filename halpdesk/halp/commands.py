@@ -61,16 +61,17 @@ class SessionCommands:
                 table.add_column("ID", style="cyan")
                 table.add_column("Mode", style="green")
                 table.add_column("Directory", style="blue")
-                table.add_column("Active", style="magenta")
+                table.add_column("Attached", style="magenta")
                 
                 for session in sessions:
-                    is_current = session["session_id"] == self.client.current_session_id
+                    is_current = session.get("session_id") == self.client.current_session_id
                     current_marker = "→ " if is_current else "  "
+                    attached = str(session.get("attached_count", 0))
                     table.add_row(
-                        f"{current_marker}{session['session_id']}",
-                        session["mode"],
-                        session["cwd"],
-                        "Current" if is_current else "Background"
+                        f"{current_marker}{session.get('session_id')}",
+                        session.get("mode", ""),
+                        session.get("cwd", ""),
+                        attached,
                     )
                 
                 console.print(table)
@@ -97,6 +98,13 @@ class SessionCommands:
     def _detach_session(self):
         """Detach from current session (keep it running)"""
         console.print("[yellow]Detaching from session (it will keep running)[/yellow]")
+        # Notify daemon of a detach (do not close if last)
+        try:
+            self.client.detach_session()
+        except Exception:
+            pass
+        # Mark intent so client does not 'leave' in finally
+        self.client.exiting_detached = True
         console.print("[yellow]Use 'halp list' and 'halp join <id>' to reconnect[/yellow]")
         sys.exit(0)
     

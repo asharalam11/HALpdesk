@@ -1,7 +1,7 @@
 """Session management for HALpdesk daemon"""
 import os
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, asdict
 from enum import Enum
 
@@ -18,6 +18,7 @@ class Session:
     created_at: float = None
     last_active: float = None
     history: List[Dict] = None
+    attached_clients: Set[int] = None  # active client PIDs attached to this session
     
     def __post_init__(self):
         if self.created_at is None:
@@ -26,6 +27,8 @@ class Session:
             self.last_active = time.time()
         if self.history is None:
             self.history = []
+        if self.attached_clients is None:
+            self.attached_clients = set()
     
     def update_activity(self):
         self.last_active = time.time()
@@ -37,6 +40,10 @@ class Session:
     def to_dict(self):
         data = asdict(self)
         data['mode'] = self.mode.value
+        # Provide an explicit attached count and avoid returning the raw set
+        attached = len(self.attached_clients) if self.attached_clients is not None else 0
+        data['attached_count'] = attached
+        data.pop('attached_clients', None)
         return data
 
 class SessionManager:
@@ -74,6 +81,39 @@ class SessionManager:
             session.update_activity()
             return True
         return False
+
+    # Attachment lifecycle
+    def attach(self, session_id: str, client_pid: int) -> int:
+        session = self.get_session(session_id)
+        if not session:
+            return -1
+        session.attached_clients.add(int(client_pid))
+        session.update_activity()
+        return len(session.attached_clients)
+
+    def detach(self, session_id: str, client_pid: int) -> Dict[str, bool]:
+        """Detach without closing the session, even if last.
+
+        Returns dict with found flag and closed=False always.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return {"found": False, "closed": False}
+        session.attached_clients.discard(int(client_pid))
+        session.update_activity()
+        return {"found": True, "closed": False}
+
+    def leave(self, session_id: str, client_pid: int) -> Dict[str, bool]:
+        """Detach; if this was the last client, close the session."""
+        session = self.get_session(session_id)
+        if not session:
+            return {"found": False, "closed": False}
+        session.attached_clients.discard(int(client_pid))
+        session.update_activity()
+        if len(session.attached_clients) == 0:
+            self.delete_session(session_id)
+            return {"found": True, "closed": True}
+        return {"found": True, "closed": False}
     
     def cleanup_stale_sessions(self, max_age: float = 3600):  # 1 hour
         current_time = time.time()
