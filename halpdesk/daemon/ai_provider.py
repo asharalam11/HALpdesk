@@ -171,27 +171,43 @@ User: {message}
 Response:"""
         return self._make_request(prompt)
 
-class OpenAIProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", base_url: str = "https://api.openai.com/v1"):
+class GeminiProvider(AIProvider):
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", base_url: str = "https://generativelanguage.googleapis.com"):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
     
     def _make_request(self, messages: list) -> str:
         try:
-            url = f"{self.base_url}/chat/completions"
+            # Convert messages to Gemini format
+            contents = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    # Gemini doesn't have system role, prepend to user message
+                    continue
+                elif msg["role"] == "user":
+                    # Combine system message if present
+                    system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+                    content = f"{system_msg}\n\n{msg['content']}" if system_msg else msg["content"]
+                    contents.append({"parts": [{"text": content}]})
+                elif msg["role"] == "assistant":
+                    contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
+            
+            url = f"{self.base_url}/v1beta/models/{self.model}:generateContent"
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
+                "x-goog-api-key": self.api_key,
                 "Content-Type": "application/json",
             }
             payload = {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": 150,
-                "temperature": 0.1,
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 150,
+                    "candidateCount": 1,
+                }
             }
             logger.info(
-                "[provider/openai] → POST %s model=%s messages=%s",
+                "[provider/gemini] → POST %s model=%s messages=%s",
                 url,
                 self.model,
                 len(messages),
@@ -199,12 +215,22 @@ class OpenAIProvider(AIProvider):
             t0 = time.perf_counter()
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             dt = (time.perf_counter() - t0) * 1000
-            logger.info("[provider/openai] ← %s %sms", response.status_code, int(dt))
+            logger.info("[provider/gemini] ← %s %sms", response.status_code, int(dt))
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except requests.exceptions.HTTPError as e:
+            # Handle specific HTTP errors more clearly
+            if response.status_code == 429:
+                return f"Gemini rate limit exceeded: {str(e)}"
+            elif response.status_code == 401:
+                return f"Gemini authentication failed: Invalid API key"
+            elif response.status_code == 403:
+                return f"Gemini access denied: Check API key permissions"
+            else:
+                return f"Gemini HTTP error: {str(e)}"
         except Exception as e:
-            return f"Error connecting to OpenAI: {str(e)}"
+            return f"Error connecting to Gemini: {str(e)}"
     
     def get_command_suggestion(self, query: str, context: Dict[str, Any]) -> str:
         cwd = context.get('cwd', '.')
@@ -238,13 +264,13 @@ class AIProviderFactory:
         default = (cfg.get("default") or "").lower()
 
         # Candidate builders based on availability
-        def build_openai() -> Optional[AIProvider]:
-            key = cfg["openai"].get("api_key") or os.getenv("OPENAI_API_KEY")
+        def build_gemini() -> Optional[AIProvider]:
+            key = cfg.get("gemini", {}).get("api_key") or os.getenv("GEMINI_API_KEY")
             if not key:
                 return None
-            model = cfg["openai"].get("model") or "gpt-3.5-turbo"
-            base = cfg["openai"].get("base_url") or "https://api.openai.com/v1"
-            return OpenAIProvider(key, model=model, base_url=base)
+            model = cfg.get("gemini", {}).get("model") or "gemini-1.5-flash"
+            base = cfg.get("gemini", {}).get("base_url") or "https://generativelanguage.googleapis.com"
+            return GeminiProvider(key, model=model, base_url=base)
 
         def build_claude() -> Optional[AIProvider]:
             key = cfg["claude"].get("api_key") or os.getenv("ANTHROPIC_API_KEY")
@@ -375,12 +401,12 @@ class AIProviderFactory:
             logger.error("[provider/select] %s", msg)
             raise RuntimeError(msg)
 
-        if default == "openai":
-            prov = build_openai()
+        if default == "gemini":
+            prov = build_gemini()
             if prov is None:
                 _raise_provider_error(
-                    "openai",
-                    "missing OPENAI_API_KEY or invalid openai configuration",
+                    "gemini",
+                    "missing GEMINI_API_KEY or invalid gemini configuration",
                 )
         elif default == "claude":
             prov = build_claude()
@@ -393,8 +419,8 @@ class AIProviderFactory:
             prov = build_ollama()
             # No strict precondition here; the daemon can autostart and pull models later.
         else:
-            # Auto: OpenAI > Claude > Ollama default
-            prov = build_openai() or build_claude() or build_ollama()
+            # Auto: Gemini > Claude > Ollama default
+            prov = build_gemini() or build_claude() or build_ollama()
 
         # Log selection
         try:
@@ -450,8 +476,8 @@ def stop_autostarted_ollama(timeout: float = 3.0) -> None:
         return OllamaProvider(model=model)
     
     @staticmethod
-    def create_openai(api_key: str, model: str = "gpt-3.5-turbo") -> OpenAIProvider:
-        return OpenAIProvider(api_key, model)
+    def create_gemini(api_key: str, model: str = "gemini-1.5-flash") -> GeminiProvider:
+        return GeminiProvider(api_key, model)
 
 
 class ClaudeProvider(AIProvider):

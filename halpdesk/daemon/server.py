@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Dict, List, Optional
 
 from .session import SessionManager, SessionMode
-from .ai_provider import AIProviderFactory, OllamaProvider, OpenAIProvider, ClaudeProvider, stop_autostarted_ollama
+from .ai_provider import AIProviderFactory, OllamaProvider, GeminiProvider, ClaudeProvider, stop_autostarted_ollama
 from .safety import CommandSafetyChecker
 from ..config import (
     server_bind,
@@ -354,7 +354,7 @@ async def diagnostics():
                         names.append(nm)
                 info["details"]["installed_models"] = names
                 info["details"]["selected_model_present"] = bool(model in names)
-        elif isinstance(ai_provider, OpenAIProvider) and base:
+        elif isinstance(ai_provider, GeminiProvider) and base:
             url = base.rstrip("/") + "/models"
             headers = {"Authorization": f"Bearer {getattr(ai_provider, 'api_key', '')}"}
             try:

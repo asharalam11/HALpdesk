@@ -200,7 +200,7 @@ class HALpClient:
         mode_name = "Chat" if self.current_mode == "chat" else "Execution"
         
         welcome_text = f"""
-[bold cyan]🤖 HALpdesk AI Terminal Assistant[/bold cyan]
+[bold cyan]📟 HALpdesk AI Terminal Assistant[/bold cyan]
 
 [bold]Session ID:[/bold] {self.current_session_id}
 [bold]Mode:[/bold] [{mode_color}]{mode_name}[/{mode_color}]
