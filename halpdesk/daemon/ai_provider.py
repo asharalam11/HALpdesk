@@ -15,7 +15,7 @@ class AIProvider(ABC):
         pass
 
 class OllamaProvider(AIProvider):
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama2"):
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "codellama:7b"):
         self.base_url = base_url
         self.model = model
     
@@ -52,9 +52,16 @@ User: "find python files" → find . -name "*.py"
 Command:"""
         
         response = self._make_request(prompt)
-        # Extract just the command part if there's extra text
+        # Extract and clean the command
         lines = response.strip().split('\n')
-        return lines[0].strip() if lines else "echo 'No command generated'"
+        command = lines[0].strip() if lines else "echo 'No command generated'"
+        
+        # Clean up common formatting issues
+        command = command.strip('`"\'')  # Remove backticks and quotes
+        command = command.replace('```bash', '').replace('```', '')  # Remove code blocks
+        command = command.strip()
+        
+        return command if command else "echo 'No command generated'"
     
     def chat(self, message: str, context: Dict[str, Any]) -> str:
         prompt = f"""You are a helpful assistant. Answer the user's question clearly and concisely.
@@ -99,9 +106,16 @@ class OpenAIProvider(AIProvider):
             {"role": "user", "content": f"Request: {query}\nCurrent directory: {cwd}\nCommand:"}
         ]
         response = self._make_request(messages)
-        # Extract just the command part
+        # Extract and clean the command
         lines = response.strip().split('\n')
-        return lines[0].strip() if lines else "echo 'No command generated'"
+        command = lines[0].strip() if lines else "echo 'No command generated'"
+        
+        # Clean up common formatting issues
+        command = command.strip('`"\'')  # Remove backticks and quotes
+        command = command.replace('```bash', '').replace('```', '')  # Remove code blocks
+        command = command.strip()
+        
+        return command if command else "echo 'No command generated'"
     
     def chat(self, message: str, context: Dict[str, Any]) -> str:
         messages = [
@@ -122,7 +136,7 @@ class AIProviderFactory:
         return OllamaProvider()
     
     @staticmethod
-    def create_ollama(model: str = "llama2") -> OllamaProvider:
+    def create_ollama(model: str = "codellama:7b") -> OllamaProvider:
         return OllamaProvider(model=model)
     
     @staticmethod
