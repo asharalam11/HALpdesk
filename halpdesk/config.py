@@ -53,8 +53,13 @@ def _read_toml(path: Path) -> Dict[str, Any]:
         return {}
 
 
+def config_path() -> Path:
+    """Return the effective config file path (may or may not exist)."""
+    return Path(os.environ.get("HALPDESK_CONFIG", DEFAULT_CONFIG_PATH))
+
+
 def load() -> Dict[str, Any]:
-    path = Path(os.environ.get("HALPDESK_CONFIG", DEFAULT_CONFIG_PATH))
+    path = config_path()
     return _read_toml(path)
 
 

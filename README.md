@@ -48,6 +48,11 @@ pip install -e .
    HAL (chat)> What does ls do?
    ```
 
+### Diagnostics
+
+- Check daemon health: `curl -s http://127.0.0.1:8080/health`
+- Inspect provider and connectivity: `curl -s http://127.0.0.1:8080/diagnostics | jq` (or omit `| jq`)
+
 ## Usage
 
 ### Basic Commands
