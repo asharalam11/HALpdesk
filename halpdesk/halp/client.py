@@ -5,8 +5,11 @@ import requests
 import time
 from typing import Optional
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm
 from rich.panel import Panel
+from prompt_toolkit import prompt
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.formatted_text import HTML
 
 from .commands import SessionCommands
 from ..config import client_daemon_url
@@ -20,6 +23,8 @@ class HALpClient:
         self.current_session_id: Optional[str] = None
         self.current_mode: str = "exec"
         self.commands = SessionCommands(self)
+        # Command history for arrow key support
+        self.history = InMemoryHistory()
     
     def get(self, endpoint: str):
         """Make GET request to daemon"""
@@ -132,11 +137,11 @@ Type '/help' for commands, 'exit' to quit.
             try:
                 # Show appropriate prompt based on mode
                 if self.current_mode == "chat":
-                    prompt_text = "[blue]HAL (chat)>[/blue] "
+                    prompt_text = HTML('<ansiblue>HAL (chat)></ansiblue> ')
                 else:
-                    prompt_text = "[green]HAL>[/green] "
+                    prompt_text = HTML('<ansigreen>HAL></ansigreen> ')
                 
-                user_input = Prompt.ask(prompt_text).strip()
+                user_input = prompt(prompt_text, history=self.history).strip()
                 
                 if not user_input:
                     continue
@@ -164,6 +169,56 @@ Type '/help' for commands, 'exit' to quit.
     
     def _handle_exec_mode(self, query: str):
         """Handle execution mode input"""
+        if query.startswith('$'):
+            # Direct command execution
+            self._handle_direct_command(query[1:].strip())
+        else:
+            # AI suggestion mode (existing behavior)
+            self._handle_ai_suggestion(query)
+    
+    def _handle_direct_command(self, command: str):
+        """Handle direct command execution with $ prefix"""
+        from halpdesk.daemon.safety import CommandSafetyChecker
+        from rich.prompt import Confirm
+        
+        # Handle multi-line commands with \ continuation
+        if command.endswith('\\'):
+            command = self._collect_multiline_command(command)
+        
+        # Check command safety
+        safety_level, safety_reason = CommandSafetyChecker.check_command(command)
+        
+        console.print(f"Command: [bold]{command}[/bold] {safety_level}")
+        if safety_level != "🟢":
+            console.print(f"[yellow]Warning: {safety_reason}[/yellow]")
+            if not Confirm.ask("Continue?", default=False):
+                return
+        
+        # Execute directly
+        console.print(f"[dim]$ {command}[/dim]")
+        self.commands.execute_command(command)
+    
+    def _collect_multiline_command(self, initial_command: str):
+        """Collect multi-line command with \ continuation"""
+        command_parts = [initial_command.rstrip('\\')]
+        
+        while True:
+            try:
+                next_line = prompt(HTML('<ansidim>&gt; </ansidim>'), history=self.history)
+                if not next_line:
+                    break
+                if next_line.endswith('\\'):
+                    command_parts.append(next_line.rstrip('\\'))
+                else:
+                    command_parts.append(next_line)
+                    break
+            except (KeyboardInterrupt, EOFError):
+                break
+        
+        return ' '.join(command_parts)
+    
+    def _handle_ai_suggestion(self, query: str):
+        """Handle AI command suggestion (original behavior)"""
         suggestion = self.get_command_suggestion(query)
         
         if not suggestion:
@@ -180,7 +235,7 @@ Type '/help' for commands, 'exit' to quit.
             console.print(f"[yellow]Warning: {safety_reason}[/yellow]")
         
         # Ask user for confirmation
-        choice = Prompt.ask(
+        choice = prompt(
             "Press [bold green]Enter[/bold green] to execute, [bold blue]e[/bold blue] to edit, or [bold red]s[/bold red] to skip",
             default="execute",
             choices=["", "e", "s", "execute", "edit", "skip"]
@@ -192,7 +247,7 @@ Type '/help' for commands, 'exit' to quit.
             self.commands.execute_command(command)
         elif choice in ["e", "edit"]:
             # Let user edit the command
-            edited_command = Prompt.ask("Edit command", default=command)
+            edited_command = prompt("Edit command: ", default=command, history=self.history)
             console.print(f"[dim]$ {edited_command}[/dim]")
             self.commands.execute_command(edited_command)
         # Skip does nothing
