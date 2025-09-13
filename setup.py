@@ -33,6 +33,7 @@ setup(
         "rich>=13.0.0",
         "click>=8.0.0",
         "pydantic>=2.0.0",
+        "tomli>=2.0.1; python_version<'3.11'",
     ],
     extras_require={
         "dev": [

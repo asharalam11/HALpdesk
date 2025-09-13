@@ -1,0 +1,39 @@
+[server]
+# Preferred: unified endpoint, any of the following forms work
+# endpoint = "http://127.0.0.1:8080"
+# endpoint = "tcp://0.0.0.0:8080"
+
+# Or set host/port separately
+host = "127.0.0.1"
+port = 8080
+
+[client]
+# Where the CLI should reach the daemon
+daemon_url = "http://127.0.0.1:8080"
+
+[providers]
+# Set the default provider to use: "openai", "claude", or "ollama".
+# If omitted, the daemon will auto-detect based on available API keys,
+# preferring OpenAI, then Claude, then Ollama.
+default = "ollama"
+
+  [providers.openai]
+  # Configure OpenAI-compatible endpoints (works with Azure/OpenRouter style too)
+  base_url = "https://api.openai.com/v1"
+  model = "gpt-3.5-turbo"
+  # api_key is optional here; normally supplied via OPENAI_API_KEY env var
+  # api_key = "sk-..."
+
+  [providers.claude]
+  # Anthropic Claude endpoint
+  base_url = "https://api.anthropic.com"
+  model = "claude-3-haiku-20240307"
+  # api_key optional; normally set via ANTHROPIC_API_KEY env var
+  # api_key = "sk-ant-..."
+
+  [providers.ollama]
+  # Local Ollama server endpoint
+  base_url = "http://localhost:11434"
+  model = "codellama:7b"
+  # Optional: path to the 'ollama' binary if it's not on PATH
+  # binary = "/usr/local/bin/ollama"

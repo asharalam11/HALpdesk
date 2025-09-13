@@ -69,11 +69,60 @@ pip install -e .
 
 ### Configuration
 
-Set environment variables:
+You can configure the daemon endpoint and the CLI via a config file or environment variables.
+
+Config file (optional): `~/.config/halpdesk/config.toml`
+
+Example:
+
+```toml
+[server]
+# Preferred: set a unified endpoint
+endpoint = "http://127.0.0.1:8080"
+# Or set host/port individually
+# host = "127.0.0.1"
+# port = 8080
+
+[client]
+# Where the `halp` CLI reaches the daemon
+daemon_url = "http://127.0.0.1:8080"
+```
+
+Environment overrides:
 
 ```bash
-export OPENAI_API_KEY="your-key-here"  # For OpenAI
-# OR use local Ollama (default)
+export HALPDESK_DAEMON_ENDPOINT="http://127.0.0.1:8080"  # or use HALPDESK_DAEMON_HOST/PORT
+export HALPDESK_DAEMON_URL="http://127.0.0.1:8080"       # used by halp CLI
+export OPENAI_API_KEY="your-key-here"                     # if using OpenAI
+export ANTHROPIC_API_KEY="your-key-here"                  # if using Claude
+export OLLAMA_HOST="http://localhost:11434"               # if using Ollama
+export HALPDESK_OLLAMA_BIN="/usr/local/bin/ollama"         # optional: binary path for auto-start
+export HALPDESK_OLLAMA_AUTOSTART=1                         # set 0/false to disable
+
+Provider configuration (optional) in `~/.config/halpdesk/config.toml`:
+
+```toml
+[providers]
+default = "ollama"  # or "openai" / "claude"
+
+  [providers.openai]
+  base_url = "https://api.openai.com/v1"
+  model = "gpt-3.5-turbo"
+
+  [providers.claude]
+  base_url = "https://api.anthropic.com"
+  model = "claude-3-haiku-20240307"
+
+  [providers.ollama]
+  base_url = "http://localhost:11434"
+  model = "llama2"
+  # optional: where to find the 'ollama' binary; if omitted, PATH is used
+  # binary = "/usr/local/bin/ollama"
+
+Ollama auto-start: When the default or selected provider is Ollama and the server
+is not reachable at `providers.ollama.base_url`, the daemon attempts to launch
+`ollama serve` in the background (respecting `OLLAMA_HOST` derived from the URL).
+```
 ```
 
 ## Architecture
