@@ -9,12 +9,14 @@ from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 
 from .commands import SessionCommands
+from ..config import client_daemon_url
 
 console = Console()
 
 class HALpClient:
-    def __init__(self, daemon_url: str = "http://127.0.0.1:8080"):
-        self.daemon_url = daemon_url
+    def __init__(self, daemon_url: str | None = None):
+        # Determine URL from arg, env or config
+        self.daemon_url = daemon_url or client_daemon_url()
         self.current_session_id: Optional[str] = None
         self.current_mode: str = "exec"
         self.commands = SessionCommands(self)
