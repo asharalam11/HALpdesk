@@ -1,0 +1,14 @@
+[Unit]
+Description=HALpdesk Daemon (user)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/halpdesk-daemon
+Restart=on-failure
+Environment=HALPDESK_HOME=%h/.halpdesk
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+

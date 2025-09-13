@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+
+echo "halpdesk: installed to /opt/halpdesk with wrappers in /usr/bin"
+echo "Note: enable the user service with:"
+echo "    systemctl --user daemon-reload"
+echo "    systemctl --user enable --now halpdesk.service"
+echo "If running via sudo, the above must be executed as the target user."
+
+exit 0
+

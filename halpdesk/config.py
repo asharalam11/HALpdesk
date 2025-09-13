@@ -40,9 +40,8 @@ except ModuleNotFoundError:  # pragma: no cover
         tomllib = None  # type: ignore
 
 
-# Use examples/config.toml as the default config
-PROJECT_ROOT = Path(__file__).parent.parent
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "examples" / "config.toml"
+# Default user config path
+DEFAULT_CONFIG_PATH = Path.home() / ".config" / "halpdesk" / "config.toml"
 
 
 def _read_toml(path: Path) -> Dict[str, Any]:
