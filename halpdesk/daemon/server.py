@@ -23,6 +23,7 @@ from ..config import (
 app = FastAPI(title="HALpdesk Daemon", version="0.1.0")
 session_manager = SessionManager()
 ai_provider = AIProviderFactory.create_provider()
+safety_checker = CommandSafetyChecker(ai_provider)
 logger = logging.getLogger("halpdesk.daemon")
 
 # Basic request/response logging middleware
@@ -229,8 +230,8 @@ async def suggest_command(request: QueryRequest):
     dt = (time.perf_counter() - t0) * 1000
     logger.info("[api/suggest] ← %sms", int(dt))
     
-    # Check safety
-    safety_level, safety_reason = CommandSafetyChecker.check_command(command)
+    # Check safety using AI
+    safety_level, safety_reason = safety_checker.check_command(command)
     
     # Add to session history
     session.add_to_history({
