@@ -1,0 +1,154 @@
+{
+  "product_name": "HALpdesk",
+  "version": "0.1.0",
+  "overview": "AI-powered terminal assistant that provides command suggestions and chat capabilities through a daemon-client architecture",
+  "target_users": ["Developers", "System administrators", "Terminal power users"],
+  "core_features": [
+    {
+      "feature_id": "F001",
+      "name": "Command Suggestion",
+      "description": "Convert natural language requests to bash commands using AI",
+      "priority": "High",
+      "acceptance_criteria": [
+        "User can input natural language query",
+        "System returns appropriate bash command",
+        "Command includes safety rating (🟢🟡🔴)",
+        "User can execute, edit, or skip suggested command"
+      ]
+    },
+    {
+      "feature_id": "F002",
+      "name": "AI Chat Mode",
+      "description": "Direct conversation interface with AI assistant",
+      "priority": "High",
+      "acceptance_criteria": [
+        "User can switch to chat mode",
+        "System provides conversational responses",
+        "Chat history is maintained within session"
+      ]
+    },
+    {
+      "feature_id": "F003",
+      "name": "Session Management",
+      "description": "Multiple terminal sessions with independent context",
+      "priority": "High",
+      "acceptance_criteria": [
+        "Users can create new sessions",
+        "Users can list active sessions",
+        "Users can join existing sessions",
+        "Sessions maintain independent history and context",
+        "Users can detach/attach to sessions"
+      ]
+    },
+    {
+      "feature_id": "F004",
+      "name": "Multi-Provider AI Support",
+      "description": "Support for multiple AI providers (Ollama, OpenAI, Claude, Gemini)",
+      "priority": "Medium",
+      "acceptance_criteria": [
+        "System can use Ollama for local AI",
+        "System can use OpenAI API",
+        "System can use Anthropic Claude API",
+        "System can use Google Gemini API",
+        "Provider selection via configuration"
+      ]
+    },
+    {
+      "feature_id": "F005",
+      "name": "Command Safety Analysis",
+      "description": "AI-powered safety assessment of shell commands",
+      "priority": "High",
+      "acceptance_criteria": [
+        "Commands are analyzed for safety level",
+        "Safety indicators shown to user (🟢🟡🔴)",
+        "Dangerous commands require confirmation",
+        "Safety reasons provided to user"
+      ]
+    }
+  ],
+  "technical_requirements": {
+    "architecture": "Client-Server with REST API",
+    "backend_framework": "FastAPI with Uvicorn",
+    "python_version": ">=3.8",
+    "api_port": 8080,
+    "config_format": "TOML"
+  },
+  "api_endpoints": [
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "description": "Health check",
+      "expected_response": {"status": "healthy"}
+    },
+    {
+      "endpoint": "/session/create",
+      "method": "POST",
+      "description": "Create new session",
+      "request_body": {"pid": "int", "cwd": "string"},
+      "expected_response": {"session_id": "string", "status": "success"}
+    },
+    {
+      "endpoint": "/session/list",
+      "method": "GET",
+      "description": "List all sessions",
+      "expected_response": {"sessions": "array"}
+    },
+    {
+      "endpoint": "/command/suggest",
+      "method": "POST",
+      "description": "Get command suggestion",
+      "request_body": {"session_id": "string", "query": "string"},
+      "expected_response": {"command": "string", "safety_level": "string", "safety_reason": "string", "status": "success"}
+    },
+    {
+      "endpoint": "/chat",
+      "method": "POST",
+      "description": "Chat with AI",
+      "request_body": {"session_id": "string", "message": "string"},
+      "expected_response": {"response": "string", "status": "success"}
+    },
+    {
+      "endpoint": "/diagnostics",
+      "method": "GET",
+      "description": "Provider diagnostics",
+      "expected_response": {"provider": "object", "connectivity": "object", "sessions": "object"}
+    }
+  ],
+  "user_workflows": [
+    {
+      "workflow_id": "W001",
+      "name": "Basic Command Suggestion",
+      "steps": [
+        "Start HALpdesk daemon",
+        "Launch halp client",
+        "Create or join session",
+        "Enter natural language query",
+        "Review suggested command and safety rating",
+        "Execute, edit, or skip command"
+      ]
+    },
+    {
+      "workflow_id": "W002",
+      "name": "Chat Mode Usage",
+      "steps": [
+        "Start HALpdesk daemon",
+        "Launch halp client",
+        "Create or join session",
+        "Switch to chat mode with /chat",
+        "Send message to AI",
+        "Receive and review response"
+      ]
+    },
+    {
+      "workflow_id": "W003",
+      "name": "Multi-Session Management",
+      "steps": [
+        "Create multiple sessions",
+        "List active sessions",
+        "Switch between sessions",
+        "Detach from session",
+        "Rejoin existing session"
+      ]
+    }
+  ]
+}
