@@ -34,6 +34,7 @@ setup(
         "click>=8.0.0",
         "pydantic>=2.0.0",
         "tomli>=2.0.1; python_version<'3.11'",
+        "prompt-toolkit>=3.0.0",
     ],
     extras_require={
         "dev": [

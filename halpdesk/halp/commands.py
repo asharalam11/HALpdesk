@@ -137,8 +137,15 @@ class SessionCommands:
   /exec                - Switch to execution mode  
   /mode <chat|exec>    - Switch to specified mode
 
+[bold]Command Input:[/bold]
+  list files               - Natural language → AI suggests command
+  $ls -la                  - Direct command execution (prefix with $)
+  $find . -name "*.py" \\   - Multi-line commands (end with \\)
+  -type f
+  ↑↓ Arrow keys           - Navigate command history
+
 [bold]Modes:[/bold]
-  [green]Execution Mode[/green] - Natural language → command suggestions
+  [green]Execution Mode[/green] - Natural language + direct commands
   [blue]Chat Mode[/blue]      - Direct conversation with AI
 
 [bold]Other:[/bold]
