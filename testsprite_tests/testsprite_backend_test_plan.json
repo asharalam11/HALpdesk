@@ -1,0 +1,32 @@
+[
+  {
+    "id": "TC001",
+    "title": "health endpoint returns healthy status",
+    "description": "Verify that the GET /health endpoint returns a response with status 'healthy' indicating the system is operational."
+  },
+  {
+    "id": "TC002",
+    "title": "create session with valid pid and cwd",
+    "description": "Test the POST /session/create endpoint by providing valid pid and cwd in the request body and verify that a new session is created with a session_id and status 'success'."
+  },
+  {
+    "id": "TC003",
+    "title": "list all active sessions",
+    "description": "Verify that the GET /session/list endpoint returns a list of all active sessions in the response."
+  },
+  {
+    "id": "TC004",
+    "title": "command suggestion returns command with safety details",
+    "description": "Test the POST /command/suggest endpoint by sending a natural language query and session_id, and verify that the response includes a suggested command, safety level indicator, safety reason, and status 'success'."
+  },
+  {
+    "id": "TC005",
+    "title": "chat endpoint returns ai conversational response",
+    "description": "Verify that the POST /chat endpoint accepts a session_id and message, and returns a conversational AI response with status 'success'."
+  },
+  {
+    "id": "TC006",
+    "title": "diagnostics endpoint returns provider connectivity and sessions info",
+    "description": "Test the GET /diagnostics endpoint to ensure it returns detailed information about AI providers, connectivity status, and session statistics."
+  }
+]
