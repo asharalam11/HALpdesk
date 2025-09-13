@@ -10,8 +10,16 @@ import urllib.parse
 import shutil
 from ..config import provider_settings
 import logging
+import threading
+import signal
+import sys
 
 logger = logging.getLogger(__name__)
+
+# Track an autostarted Ollama process so we can shut it down on daemon exit
+AUTOSTARTED_OLLAMA_PROC: Optional[subprocess.Popen] = None
+_OLLAMA_PULLING: set[str] = set()
+_OLLAMA_PULL_LOCK = threading.Lock()
 
 class AIProvider(ABC):
     @abstractmethod
@@ -60,16 +68,42 @@ class OllamaProvider(AIProvider):
         except Exception:
             return False
 
-    def _ensure_model(self) -> None:
+    def _pull_model_background(self, model: str) -> None:
+        def worker():
+            try:
+                ok = self._pull_model(model)
+                logger.info("[provider/ollama] background pull complete ok=%s model=%s", ok, model)
+            finally:
+                with _OLLAMA_PULL_LOCK:
+                    _OLLAMA_PULLING.discard(model)
+
+        with _OLLAMA_PULL_LOCK:
+            if model in _OLLAMA_PULLING:
+                return
+            _OLLAMA_PULLING.add(model)
+        t = threading.Thread(target=worker, name=f"ollama-pull-{model}", daemon=True)
+        t.start()
+
+    def _ensure_model(self) -> bool:
+        """Ensure model is present.
+
+        Returns True if model appears available; otherwise starts a background
+        pull (if not already running) and returns False.
+        """
         if self.model in self._tags():
-            return
-        # Attempt to pull configured model name
-        self._pull_model(self.model)
+            return True
+        # Start background pull and report not-ready
+        self._pull_model_background(self.model)
+        return False
 
     def _make_request(self, prompt: str) -> str:
         try:
-            # Ensure model exists before generation; if not present, try to pull
-            self._ensure_model()
+            # Ensure model exists. If not, start background pull and return a hint
+            if not self._ensure_model():
+                return (
+                    f"Downloading Ollama model '{self.model}' in background. "
+                    f"Try again shortly or run 'ollama pull {self.model}'."
+                )
 
             url = f"{self.base_url}/api/generate"
             payload = {"model": self.model, "prompt": prompt, "stream": False}
@@ -84,13 +118,13 @@ class OllamaProvider(AIProvider):
             dt = (time.perf_counter() - t0) * 1000
             logger.info("[provider/ollama] ← %s %sms", response.status_code, int(dt))
             if response.status_code == 404:
-                # Likely missing model, try pull then retry once
-                self._ensure_model()
-                logger.info("[provider/ollama] ↻ retry generate after pull")
-                t0 = time.perf_counter()
-                response = requests.post(url, json=payload, timeout=60)
-                dt = (time.perf_counter() - t0) * 1000
-                logger.info("[provider/ollama] ← %s %sms (retry)", response.status_code, int(dt))
+                # Likely missing model; ensure background pull is running and return instructional text
+                self._pull_model_background(self.model)
+                logger.info("[provider/ollama] model missing; started background pull")
+                return (
+                    f"Downloading Ollama model '{self.model}' in background. "
+                    f"Try again shortly or run 'ollama pull {self.model}'."
+                )
             response.raise_for_status()
             return response.json().get("response", "")
         except Exception as e:
@@ -250,18 +284,23 @@ class AIProviderFactory:
         def _try_start_ollama(base: str, binary: str | None) -> None:
             # If already up, nothing to do
             if _is_ollama_up(base):
+                logger.info("[provider/ollama] already running at %s", base)
                 return
             if not _is_local(base):
+                logger.info("[provider/ollama] skip autostart: non-local base %s", base)
                 return  # Do not attempt to start remote endpoints
             if str(os.environ.get("HALPDESK_OLLAMA_AUTOSTART", "1")).lower() in {"0", "false", "no"}:
+                logger.info("[provider/ollama] autostart disabled by env")
                 return
             bin_path = binary or shutil.which("ollama")
             if not bin_path:
+                logger.warning("[provider/ollama] 'ollama' binary not found; cannot autostart")
                 return  # Not installed; skip
             env = os.environ.copy()
             env.setdefault("OLLAMA_HOST", _ollama_hostport_from_base(base))
+            global AUTOSTARTED_OLLAMA_PROC
             try:
-                subprocess.Popen(
+                AUTOSTARTED_OLLAMA_PROC = subprocess.Popen(
                     [bin_path, "serve"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -293,15 +332,83 @@ class AIProviderFactory:
             return OllamaProvider(base_url=base, model=model)
 
         # If explicitly configured, honor it
-        if default == "openai":
-            return build_openai() or build_ollama()
-        if default == "claude":
-            return build_claude() or build_ollama()
-        if default == "ollama":
-            return build_ollama()
+        def _raise_provider_error(name: str, reason: str) -> None:
+            msg = (
+                f"Provider '{name}' selected in config but is not available: {reason}. "
+                "Update ~/.config/halpdesk/config.toml or set the required env vars."
+            )
+            logger.error("[provider/select] %s", msg)
+            raise RuntimeError(msg)
 
-        # Auto: OpenAI > Claude > Ollama default
-        return build_openai() or build_claude() or build_ollama()
+        if default == "openai":
+            prov = build_openai()
+            if prov is None:
+                _raise_provider_error(
+                    "openai",
+                    "missing OPENAI_API_KEY or invalid openai configuration",
+                )
+        elif default == "claude":
+            prov = build_claude()
+            if prov is None:
+                _raise_provider_error(
+                    "claude",
+                    "missing ANTHROPIC_API_KEY or invalid claude configuration",
+                )
+        elif default == "ollama":
+            prov = build_ollama()
+            # No strict precondition here; the daemon can autostart and pull models later.
+        else:
+            # Auto: OpenAI > Claude > Ollama default
+            prov = build_openai() or build_claude() or build_ollama()
+
+        # Log selection
+        try:
+            name = prov.__class__.__name__  # type: ignore[attr-defined]
+            model = getattr(prov, "model", None)
+            base = getattr(prov, "base_url", None)
+            logger.info("[provider/select] %s model=%s base=%s", name, model, base)
+        except Exception:
+            pass
+        return prov
+
+
+def stop_autostarted_ollama(timeout: float = 3.0) -> None:
+    """Terminate an autostarted Ollama server if we launched it.
+
+    Sends SIGTERM to the process group on POSIX or terminate() on Windows.
+    Safe to call multiple times.
+    """
+    global AUTOSTARTED_OLLAMA_PROC
+    proc = AUTOSTARTED_OLLAMA_PROC
+    if not proc:
+        return
+    if proc.poll() is not None:
+        AUTOSTARTED_OLLAMA_PROC = None
+        return
+    try:
+        logger.info("[shutdown] stopping autostarted Ollama (pid=%s)", proc.pid)
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)  # type: ignore[arg-type]
+            except Exception:
+                proc.terminate()
+        else:
+            proc.terminate()
+        # Wait a bit, then force kill if still alive
+        t0 = time.time()
+        while (time.time() - t0) < timeout and proc.poll() is None:
+            time.sleep(0.1)
+        if proc.poll() is None:
+            logger.warning("[shutdown] forcing kill of Ollama (pid=%s)", proc.pid)
+            if os.name == "posix":
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[arg-type]
+                except Exception:
+                    proc.kill()
+            else:
+                proc.kill()
+    finally:
+        AUTOSTARTED_OLLAMA_PROC = None
     
     @staticmethod
     def create_ollama(model: str = "codellama:7b") -> OllamaProvider:
