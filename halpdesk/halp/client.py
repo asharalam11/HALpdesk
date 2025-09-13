@@ -185,8 +185,9 @@ Type '/help' for commands, 'exit' to quit.
         if command.endswith('\\'):
             command = self._collect_multiline_command(command)
         
-        # Check command safety
-        safety_level, safety_reason = CommandSafetyChecker.check_command(command)
+        # Check command safety (client uses fallback patterns)
+        fallback_checker = CommandSafetyChecker()
+        safety_level, safety_reason = fallback_checker.check_command(command)
         
         console.print(f"Command: [bold]{command}[/bold] {safety_level}")
         if safety_level != "🟢":
