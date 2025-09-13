@@ -323,13 +323,48 @@ class AIProviderFactory:
             return f"http://{base}"
 
         def build_ollama() -> Optional[AIProvider]:
-            base = cfg["ollama"].get("base_url") or os.getenv("HALPDESK_OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST") or "http://localhost:11434"
+            # Read from config file, use reasonable defaults if not configured
+            base = cfg["ollama"].get("base_url") or "http://localhost:11434"
             base = _normalize_http_base(base)
-            model = cfg["ollama"].get("model") or "llama2"
+            model = cfg["ollama"].get("model")
+            if not model:
+                raise RuntimeError(
+                    "No Ollama model specified in config. "
+                    "Please set 'providers.ollama.model' in ~/.config/halpdesk/config.toml "
+                    "or use the example config from examples/config.toml"
+                )
             binary = cfg["ollama"].get("binary")
+            
             # Attempt to auto-start the Ollama server if not reachable
             _try_start_ollama(base, binary)
-            return OllamaProvider(base_url=base, model=model)
+            
+            # Create provider instance to check model availability
+            provider = OllamaProvider(base_url=base, model=model)
+            
+            # Check if Ollama server is reachable and get available models
+            try:
+                available_models = provider._tags()
+            except Exception as e:
+                error_msg = (
+                    f"Cannot connect to Ollama server at {base}. "
+                    f"Make sure Ollama is running. Error: {e}"
+                )
+                logger.error("[provider/ollama] %s", error_msg)
+                raise RuntimeError(error_msg)
+            
+            # Check if the configured model exists
+            if model not in available_models:
+                available_str = ", ".join(available_models) if available_models else "none"
+                error_msg = (
+                    f"FATAL: Ollama model '{model}' not found. "
+                    f"Available models: [{available_str}]. "
+                    f"Install with: ollama pull {model}"
+                )
+                logger.error("[provider/ollama] %s", error_msg)
+                raise RuntimeError(error_msg)
+                
+            logger.info("[provider/ollama] Model '%s' is available ✓", model)
+            return provider
 
         # If explicitly configured, honor it
         def _raise_provider_error(name: str, reason: str) -> None:
