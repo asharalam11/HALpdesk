@@ -234,18 +234,22 @@ Type '/help' for commands, 'exit' to quit.
         if safety_level != "🟢":
             console.print(f"[yellow]Warning: {safety_reason}[/yellow]")
         
-        # Ask user for confirmation
-        choice = prompt(
-            "Press [bold green]Enter[/bold green] to execute, [bold blue]e[/bold blue] to edit, or [bold red]s[/bold red] to skip",
-            default="execute",
-            choices=["", "e", "s", "execute", "edit", "skip"]
-        )
+        # Ask user for confirmation (prompt_toolkit does not support 'choices' kw)
+        while True:
+            choice = prompt(
+                "Press Enter to execute, 'e' to edit, or 's' to skip: ",
+                default="",
+                history=self.history,
+            ).strip().lower()
+            if choice in ("", "e", "s", "execute", "edit", "skip"):
+                break
+            console.print("[yellow]Please type Enter, 'e', or 's'.[/yellow]")
         
-        if choice in ["", "execute"]:
+        if choice in ("", "execute"):
             # Execute the suggested command
             console.print(f"[dim]$ {command}[/dim]")
             self.commands.execute_command(command)
-        elif choice in ["e", "edit"]:
+        elif choice in ("e", "edit"):
             # Let user edit the command
             edited_command = prompt("Edit command: ", default=command, history=self.history)
             console.print(f"[dim]$ {edited_command}[/dim]")
