@@ -1,0 +1,1 @@
+"""HALpdesk CLI client module"""
