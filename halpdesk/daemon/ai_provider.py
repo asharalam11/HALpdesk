@@ -159,7 +159,7 @@ Response:"""
         return self._make_request(prompt)
 
 class GeminiProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", base_url: str = "https://generativelanguage.googleapis.com"):
+    def __init__(self, api_key: str, model: str, base_url: str = "https://generativelanguage.googleapis.com"):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
@@ -189,7 +189,7 @@ class GeminiProvider(AIProvider):
                 "contents": contents,
                 "generationConfig": {
                     "temperature": 0.1,
-                    "maxOutputTokens": 150,
+                    "maxOutputTokens": 4000,
                     "candidateCount": 1,
                 }
             }
@@ -205,6 +205,7 @@ class GeminiProvider(AIProvider):
             logger.info("[provider/gemini] ← %s %sms", response.status_code, int(dt))
             response.raise_for_status()
             data = response.json()
+            print("Gemini response data:", data, file=sys.stderr)  # Debug print
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except requests.exceptions.HTTPError as e:
             # Handle specific HTTP errors more clearly
@@ -231,6 +232,10 @@ If enough information is provided, reply with EXACTLY:
 
 If you need more details to produce a safe command, reply with EXACTLY:
 {{"action":"ask","question":"<one short clarifying question>"}}
+
+Rules: one line only (no newlines, code fences, or backticks). Use $(...) not backticks. 
+Quote paths. Use "$PWD" or "$HOME", not "~". OS-specific: use only tools/flags supported on this OS.
+On macOS/BSD do NOT use GNU-only options such as find -printf, sed -r, du --block-size, grep -P.
 
 No explanations or text outside the JSON object.
 
