@@ -248,27 +248,41 @@ async def suggest_command(request: QueryRequest):
             text = re.sub(r"\s*```$", "", text)
         try:
             obj = _json.loads(text)
-            if isinstance(obj, dict) and "action" in obj:
-                return {
-                    "action": str(obj.get("action", "")).lower(),
-                    "command": obj.get("command"),
-                    "question": obj.get("question"),
-                    "reason": obj.get("reason"),
-                }
-        except Exception:
-            pass
-        # Find first JSON object anywhere in the text (even if code fences remain)
-        m = re.search(r"\{[\s\S]*\}", text)
-        if m:
-            try:
-                obj = _json.loads(m.group(0))
-                if isinstance(obj, dict) and "action" in obj:
+            if isinstance(obj, dict):
+                if "action" in obj:
                     return {
                         "action": str(obj.get("action", "")).lower(),
                         "command": obj.get("command"),
                         "question": obj.get("question"),
                         "reason": obj.get("reason"),
                     }
+                # JSON present but not our schema
+                return {"action": "invalid", "reason": "missing action field"}
+        except Exception:
+            pass
+        # If it looks like JSON-ish, try to extract a quoted command value
+        if text.lstrip().startswith("{") and '"command"' in text:
+            mcmd = re.search(r'"command"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+            if mcmd:
+                try:
+                    cmd = _json.loads('"' + mcmd.group(1) + '"')
+                    return {"action": "command", "command": cmd, "question": None, "reason": None}
+                except Exception:
+                    pass
+        # Find first JSON object anywhere in the text (even if code fences remain)
+        m = re.search(r"\{[\s\S]*\}", text)
+        if m:
+            try:
+                obj = _json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    if "action" in obj:
+                        return {
+                            "action": str(obj.get("action", "")).lower(),
+                            "command": obj.get("command"),
+                            "question": obj.get("question"),
+                            "reason": obj.get("reason"),
+                        }
+                    return {"action": "invalid", "reason": "missing action field"}
             except Exception:
                 pass
         if text.lower().startswith("ask:"):
@@ -277,6 +291,14 @@ async def suggest_command(request: QueryRequest):
 
     decision = _parse_decision(raw)
     action = decision.get("action")
+    if action not in {"command", "ask", "refuse"}:
+        msg = (
+            "Reformat: Return exactly one JSON object with action=command (and a single-line command) "
+            "or action=ask (and a short question). Do not return model metadata."
+        )
+        session.add_to_history({"type": "clarify_request", "question": msg})
+        return {"status": "need_more_info", "question": msg}
+
     if action == "ask":
         q = decision.get("question") or "Could you provide more details?"
         session.add_to_history({"type": "clarify_request", "question": q})
