@@ -24,6 +24,16 @@ from ..config import (
     client_daemon_url,
 )
 
+# Print config path as early as possible (before provider creation)
+try:
+    _early_cfg_path = config_path()
+    print(f"[halpdesk][startup] config path={_early_cfg_path} exists={_early_cfg_path.exists()}", flush=True)
+except Exception as _e:  # noqa: BLE001
+    try:
+        print(f"[halpdesk][startup] failed to resolve config path: {_e}", flush=True)
+    except Exception:
+        pass
+
 app = FastAPI(title="HALpdesk Daemon", version="0.1.0")
 session_manager = SessionManager()
 ai_provider = AIProviderFactory.create_provider()

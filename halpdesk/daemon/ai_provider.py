@@ -261,19 +261,30 @@ class AIProviderFactory:
 
         # Candidate builders based on availability
         def build_gemini() -> Optional[AIProvider]:
-            key = cfg.get("gemini", {}).get("api_key") or os.getenv("GEMINI_API_KEY")
+            # API key can come from env for security; model/base must come from config
+            g = cfg.get("gemini", {}) or {}
+            key = g.get("api_key") or os.getenv("GEMINI_API_KEY")
             if not key:
                 return None
-            model = cfg.get("gemini", {}).get("model") or "gemini-1.5-flash"
-            base = cfg.get("gemini", {}).get("base_url") or "https://generativelanguage.googleapis.com"
+            model = g.get("model")
+            base = g.get("base_url")
+            if not model:
+                raise RuntimeError("Gemini model not specified in config: providers.gemini.model")
+            if not base:
+                raise RuntimeError("Gemini base_url not specified in config: providers.gemini.base_url")
             return GeminiProvider(key, model=model, base_url=base)
 
         def build_claude() -> Optional[AIProvider]:
-            key = cfg["claude"].get("api_key") or os.getenv("ANTHROPIC_API_KEY")
+            c = cfg.get("claude", {}) or {}
+            key = c.get("api_key") or os.getenv("ANTHROPIC_API_KEY")
             if not key:
                 return None
-            model = cfg["claude"].get("model") or "claude-3-haiku-20240307"
-            base = cfg["claude"].get("base_url") or "https://api.anthropic.com"
+            model = c.get("model")
+            base = c.get("base_url")
+            if not model:
+                raise RuntimeError("Claude model not specified in config: providers.claude.model")
+            if not base:
+                raise RuntimeError("Claude base_url not specified in config: providers.claude.base_url")
             return ClaudeProvider(key, model=model, base_url=base)
 
         def _ollama_hostport_from_base(base: str) -> str:
@@ -345,15 +356,16 @@ class AIProviderFactory:
             return f"http://{base}"
 
         def build_ollama() -> Optional[AIProvider]:
-            # Read from config file, use reasonable defaults if not configured
-            base = cfg["ollama"].get("base_url") or "http://localhost:11434"
-            base = _normalize_http_base(base)
-            model = cfg["ollama"].get("model")
+            # Require explicit base_url and model in config (no defaults)
+            o = cfg.get("ollama", {}) or {}
+            base = o.get("base_url")
+            model = o.get("model")
+            if not base:
+                raise RuntimeError("Ollama base_url not specified in config: providers.ollama.base_url")
+            base = _normalize_http_base(str(base))
             if not model:
                 raise RuntimeError(
-                    "No Ollama model specified in config. "
-                    "Please set 'providers.ollama.model' in ~/.config/halpdesk/config.toml "
-                    "or use the example config from examples/config.toml"
+                    "Ollama model not specified in config: providers.ollama.model"
                 )
             binary = cfg["ollama"].get("binary")
             
@@ -396,6 +408,9 @@ class AIProviderFactory:
             )
             logger.error("[provider/select] %s", msg)
             raise RuntimeError(msg)
+
+        if not default:
+            raise RuntimeError("providers.default is not set in config; no provider selected")
 
         if default == "gemini":
             prov = build_gemini()

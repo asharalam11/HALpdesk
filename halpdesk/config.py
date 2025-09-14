@@ -173,6 +173,7 @@ def provider_settings() -> Dict[str, Any]:
         "openai": {"base_url": None, "model": None, "api_key": None},
         "claude": {"base_url": None, "model": None, "api_key": None},
         "ollama": {"base_url": None, "model": None, "binary": None},
+        "gemini": {"base_url": None, "model": None, "api_key": None},
     }
 
     # Default provider selection
@@ -180,7 +181,7 @@ def provider_settings() -> Dict[str, Any]:
     if isinstance(prov, dict):
         default_from_cfg = prov.get("default")
         # Nested provider configs
-        for name in ("openai", "claude", "ollama"):
+        for name in ("openai", "claude", "ollama", "gemini"):
             sub = prov.get(name, {}) if isinstance(prov.get(name), dict) else {}
             # Ollama doesn't use api_key; allow optional 'binary'
             keys = ("base_url", "model", "api_key", "binary")
